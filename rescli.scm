@@ -1,16 +1,36 @@
 ;read the reservoir file, search, view, edit
 ;rescli list [--filter/-f all/title/link/tags] [--sort/-s relevant/newest/oldest] [--query/-q xxx] [--limit/-l n]
 ;rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] (--tags/-t x,x,x)
+;rescli delete [id]
 ;rescli view [id]
 ;rescli init [--overwrite/-o]
 ;~/.local/share/reservoir/stored.json
 
 ;util to find index, if out of bounds, return alternate value (probably "" or #f)
-(define list-ref-alt (lambda (index-list index alt)
+(define list-ref-or-alt (lambda (index-list index alt)
   (if (> (length index-list) index)
     (list-ref index-list index)
     alt
   )
+))
+;returns alt if not string
+(define string->number-or-alt (lambda (to-number alt)
+  (if (string? to-number)
+    (string->number to-number)
+    alt
+  )
+))
+;cant figure out how to import this srfi 1 thing so I'll just write my own version of take
+(define list-take (lambda (og-list first-n)
+  ;we subtract elements from og-list and add it to current-list,
+  ;until og-list is no more, or current-list is first-n long
+  (define list-take-tail (lambda (og-list first-n current-list)
+    (if (or (= (length current-list) first-n) (= (length og-list) 0))
+      current-list
+      (list-take-tail (cdr og-list) first-n (cons (car og-list) current-list))
+    )
+  ))
+  (reverse (list-take-tail og-list first-n '()))
 ))
 ;util to remove non quoted spaces
 (define strip-non-quoted (lambda (content)
@@ -47,6 +67,33 @@
     )
   ))
   (strip-non-quoted-tail content "" #f 0)
+))
+;util to get flag content
+(define get-flag-content (lambda (flag-name args)
+  (define get-flag-content-tail (lambda (flag-name args flag-content)
+    (if (= (length args) 0)
+      flag-content
+      (if (char=? (string-ref (car args) 0) #\-)
+        (if (string=? (car args) flag-name)
+          ;start recording flag content
+          (get-flag-content-tail flag-name (cdr args) "")
+          ;different flag
+          (if (string? flag-content)
+            flag-content
+            (get-flag-content-tail flag-name (cdr args) #f)
+          )
+        )
+        (if (string? flag-content)
+          (get-flag-content-tail flag-name (cdr args) (string-append flag-content (if (string=? flag-content "")
+            ""
+            " "
+          ) (car args)))
+          (get-flag-content-tail flag-name (cdr args) flag-content)
+        )
+      )
+    )
+  ))
+  (get-flag-content-tail flag-name args #f)
 ))
 ;get file contents, without new lines
 (define get-file-contents (lambda (file)
@@ -296,6 +343,13 @@
   ))
   (gen-bookmark-list-tail bookmarks "")
 ))
+(define limit-bookmarks (lambda (limit bookmarks)
+  (if (number? limit)
+    ;first n elements of a list
+    (list-take bookmarks limit)
+    bookmarks
+  )
+))
 ;remove first item, so it is just args
 (let ([args (cdr (command-line))])
   (cond
@@ -329,15 +383,59 @@
     ;list
     (
       (string=? (list-ref args 0) "list")
-      (let ([bookmarks (get-bookmarks (get-file-contents (open-input-file "~/.local/share/reservoir/stored.json")))])
-        (display "a")
-        (display (gen-bookmark-list bookmarks))
+      ;get-flag-content
+      (let
+        (
+          [bookmarks (get-bookmarks (get-file-contents (open-input-file "~/.local/share/reservoir/stored.json")))]
+          [filter-flag (if (string? (get-flag-content "--filter" args))
+            (get-flag-content "--filter" args)
+            (get-flag-content "-f" args) ;returns #f if not found
+          )]
+          [sort-flag (if (string? (get-flag-content "--sort" args))
+            (get-flag-content "--sort" args)
+            (get-flag-content "-s" args)
+          )]
+          [query-flag (if (string? (get-flag-content "--query" args))
+            (get-flag-content "--query" args)
+            (get-flag-content "-q" args)
+          )]
+          [limit-flag (if (string? (get-flag-content "--limit" args))
+            (get-flag-content "--limit" args)
+            (get-flag-content "-l" args)
+          )]
+        )
+        ;flag validation
+        ;if query flag, there must be filter flag, and vice versa
+        ;rescli list [--filter/-f all/title/link/tags] [--sort/-s relevant/newest/oldest] [--query/-q xxx] [--limit/-l n]
+        (cond
+          (
+            (and (string? filter-flag) (not (list? (member filter-flag '("all" "title" "link" "tags")))))
+            (display "If '--filter' flag provided, it must be one of the following: all, title, link, tags\n")
+          )
+          (
+            (and (string? sort-flag) (not (list? (member sort-flag '("relevant" "newest" "oldest")))))
+            (display "If '--sort' flag provided, it must be one of the following: relevant, newest, oldest\n")
+          )
+          (
+            (and (string? limit-flag) (not (number? (string->number-or-alt limit-flag #f))))
+            (display "If '--limit' flag provided, it must be a number\n")
+          )
+          (
+            (or (and (string? query-flag) (not (string? filter-flag))) (and (string? filter-flag) (not (string? query-flag))))
+            (display "If '--query' flag provided, there must be the '--filter' flag, and vice versa\n")
+          )
+          (
+            else
+            ;apply the flags
+            (display (gen-bookmark-list (limit-bookmarks (string->number-or-alt limit-flag #f) bookmarks)))
+          )
+        )
       )
     )
     ;view
     (
       (string=? (list-ref args 0) "view")
-      (let ([uuid (list-ref-alt args 1 #f)])
+      (let ([uuid (list-ref-or-alt args 1 #f)])
         (if uuid
           ;find bookmark by id
           (let ([contents (get-file-contents (open-input-file "~/.local/share/reservoir/stored.json"))])
