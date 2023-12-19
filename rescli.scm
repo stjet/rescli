@@ -20,6 +20,21 @@
     alt
   )
 ))
+;list any: returns #t if one item in list meets condition
+;
+;string in string util
+(define string-in-string (lambda (small-string large-string)
+  (define string-in-string-tail (lambda (small-string large-string index)
+    (if (> (+ index (string-length small-string)) (string-length large-string))
+      #f
+      (if (string=? (substring large-string index (+ index (string-length small-string))) small-string)
+        #t
+        (string-in-string-tail small-string large-string (+ index 1))
+      )
+    )
+  ))
+  (string-in-string-tail small-string large-string 0)
+))
 ;cant figure out how to import this srfi 1 thing so I'll just write my own version of take
 (define list-take (lambda (og-list first-n)
   ;we subtract elements from og-list and add it to current-list,
@@ -350,6 +365,65 @@
     bookmarks
   )
 ))
+(define bookmark-timestamp-sort (lambda (compare-proc)
+  (lambda (first second)
+    (if (compare-proc (bookmark-timestamp first) (bookmark-timestamp second))
+      #t
+      #f
+    )
+  )
+))
+(define sort-bookmarks (lambda (sort-mode bookmarks)
+  (if (not sort-mode)
+    bookmarks
+    (cond
+      (
+        (string=? sort-mode "newest")
+        (sort (bookmark-timestamp-sort >) bookmarks)
+      )
+      (
+        (string=? sort-mode "oldest")
+        (sort (bookmark-timestamp-sort <) bookmarks)
+      )
+      ;'relevant' is the default
+      (
+        else
+        bookmarks
+      )
+    )
+  )
+))
+(define query-bookmarks (lambda (bookmarks filter-mode query)
+  (filter (lambda (item)
+    ;all title link tags
+    ;if filter-mode and query are #f
+    (if (not filter-mode)
+      bookmarks
+      (cond
+        ;all
+        (
+          (string=? filter-mode "all")
+          (or (string-in-string query (bookmark-title item)) (string-in-string query (bookmark-link item)) (member query (bookmark-tags item)))
+        )
+        ;title query success and failure
+        (
+          (string=? filter-mode "title")
+          (string-in-string query (bookmark-title item))
+        )
+        ;link query success and failure
+        (
+          (string=? filter-mode "link")
+          (string-in-string query (bookmark-link item))
+        )
+        ;tags
+        (
+          (string=? filter-mode "tags")
+          (member query (bookmark-tags item))
+        )
+      )
+    )
+  ) bookmarks)
+))
 ;remove first item, so it is just args
 (let ([args (cdr (command-line))])
   (cond
@@ -427,7 +501,7 @@
           (
             else
             ;apply the flags
-            (display (gen-bookmark-list (limit-bookmarks (string->number-or-alt limit-flag #f) bookmarks)))
+            (display (gen-bookmark-list (limit-bookmarks (string->number-or-alt limit-flag #f) (sort-bookmarks sort-flag (query-bookmarks bookmarks filter-flag query-flag)))))
           )
         )
       )
@@ -461,7 +535,6 @@
               (display "Timestamp: ")
               (display (bookmark-timestamp bookmark))
               (newline)
-              ;
             )
           )
           (display "Missing id argument\n")
