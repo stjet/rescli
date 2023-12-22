@@ -1,11 +1,39 @@
 ;read the reservoir file, search, view, edit
 ;rescli list [--filter/-f all/title/link/tags] [--sort/-s relevant/newest/oldest] [--query/-q xxx] [--limit/-l n]
-;rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] (--tags/-t x,x,x)
+;rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] (--tags/-a \"x\",\"x\",\"x\")
 ;rescli delete [id]
 ;rescli view [id]
 ;rescli init [--overwrite/-o]
 ;~/.local/share/reservoir/stored.json
 
+;generate a non-compliant uuid
+;128 bits = 16 bytes, format is 4 - 2 - 2 - 2 - 6 (bytes, in hex)
+(define gen-fake-uuid (lambda ()
+  (define random-hex-byte (lambda ()
+    (let ([rand-byte (random 256)] [hex-chars '(#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\a #\b #\c #\d #\e #\f)])
+      (list->string (list (list-ref hex-chars (floor (/ rand-byte 16))) (list-ref hex-chars (modulo rand-byte 16))))
+    )
+  ))
+  (define random-hex-bytes (lambda (n)
+    (define random-hex-bytes-tail (lambda (n i current-string)
+      (if (< i n)
+        (random-hex-bytes-tail n (+ i 1) (string-append current-string (random-hex-byte)))
+        current-string
+      )
+    ))
+    ;not a great seed but whatever we aint doing cryptography
+    (random-seed (- (time-second (current-time)) (time-nanosecond (current-time))))
+    (random-hex-bytes-tail n 0 "")
+  ))
+  (string-append (random-hex-bytes 4) "-" (random-hex-bytes 2) "-" (random-hex-bytes 2) "-" (random-hex-bytes 2) "-" (random-hex-bytes 6))
+))
+;get file location (in case the reservoir file is not in ~/.local/share/reservoir (eg, on windows)
+(define json-file (lambda ()
+  (if (file-exists? "~/.config/rescli.txt")
+    (get-line (open-input-file "~/.config/rescli.txt"))
+    "~/.local/share/reservoir/stored.json"
+  )
+))
 ;util to find index, if out of bounds, return alternate value (probably "" or #f)
 (define list-ref-or-alt (lambda (index-list index alt)
   (if (> (length index-list) index)
@@ -20,8 +48,6 @@
     alt
   )
 ))
-;list any: returns #t if one item in list meets condition
-;
 ;string in string util
 (define string-in-string (lambda (small-string large-string)
   (define string-in-string-tail (lambda (small-string large-string index)
@@ -213,6 +239,15 @@
 (define parse-number (lambda (to-number)
   (string->number to-number)
 ))
+;reverse parse to json
+(define string-or-null-to-json (lambda (to-json)
+  (if (string? to-json)
+    (string-append "\"" to-json "\"")
+    "null"
+  )
+))
+;(define parse-string-list (lambda (to-string-list)
+;
 ;bookmark related
 (define-record-type bookmark (fields title link note tags uuid timestamp))
 ;do not assume formatting or order of fields
@@ -424,6 +459,48 @@
     )
   ) bookmarks)
 ))
+;bookmarks to json (any quotes in the bookmark field values are assumed to be already backslashed)
+(define bookmarks-to-json (lambda (bookmarks)
+  (define bookmarks-to-json-tail (lambda (bookmarks current-json)
+    (if (= (length bookmarks) 0)
+      current-json
+      (let ([tags-string (fold-left (lambda (accum current) (string-append accum "\n        \"" current "\",")) "" (bookmark-tags (car bookmarks)))])
+        (bookmarks-to-json-tail (cdr bookmarks) (string-append current-json
+          (if (= (string-length current-json) 0)
+            ""
+            ","
+          )
+          "\n    \""
+          (bookmark-uuid (car bookmarks))
+          "\": {\n"
+          "      \"title\": \""
+          (bookmark-title (car bookmarks))
+          "\",\n"
+          "      \"link\": \""
+          (bookmark-link (car bookmarks))
+          "\",\n"
+          "      \"note\": "
+          (string-or-null-to-json (bookmark-note (car bookmarks)))
+          ",\n"
+          "      \"tags\": ["
+          ;remove the last comma
+          (if (= (string-length tags-string) 0)
+            ""
+            (list->string (reverse (cdr (reverse (string->list tags-string)))))
+          )
+          "\n      ],\n"
+          "      \"uuid\": \""
+          (bookmark-uuid (car bookmarks))
+          "\",\n"
+          "      \"timestamp\": "
+          (number->string (bookmark-timestamp (car bookmarks)))
+          "\n    }"
+        ))
+      )
+    )
+  ))
+  (string-append "{\n  \"bookmarks\": {" (bookmarks-to-json-tail bookmarks "") "\n  }\n}")
+))
 ;remove first item, so it is just args
 (let ([args (cdr (command-line))])
   (cond
@@ -434,21 +511,20 @@
     ;help command
     (
       (or (string=? (list-ref args 0) "--help") (string=? (list-ref args 0) "-h"))
-      (display "Commands:\n - rescli list [--filter/-f all/title/link/tags] [--sort/-s relevant/newest/oldest] [--query/-q xxx] [--limit/-l n] \n - rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] (--tags/-t x,x,x) \n - rescli view [id]\n - rescli init [--overwrite/-o]\n")
+      (display "Commands:\n - rescli list [--filter/-f all/title/link/tags] [--sort/-s relevant/newest/oldest] [--query/-q xxx] [--limit/-l n] \n - rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] [--tags/-a \"x\",\"x\",\"x\"] \n - rescli view [id]\n - rescli init [--overwrite/-o]\n")
     )
     ;init
     (
       (string=? (list-ref args 0) "init")
-      (let ([overwrite-flag (or (string=? (list-ref-alt args 1 "") "--overwrite") (string=? (list-ref-alt args 1 "") "-o"))])
-        ;a.json is placeholder for testing
-        (if (file-exists? "a.json")
+      (let ([overwrite-flag (or (string=? (list-ref-or-alt args 1 "") "--overwrite") (string=? (list-ref-or-alt args 1 "") "-o"))])
+        (if (file-exists? (json-file))
           (if overwrite-flag
-            (delete-file "a.json")
+            (delete-file (json-file))
             (display "File already exists. To overwrite current bookmarks file pass '--overwrite'\n")
           )
         )
-        (if (not (file-exists? "a.json"))
-          (call-with-output-file "a.json" (lambda (write-port)
+        (if (not (file-exists? (json-file)))
+          (call-with-output-file (json-file) (lambda (write-port)
             (display "{\n  \"bookmarks\": {\n  }\n}\n" write-port)
           ))
         )
@@ -457,10 +533,9 @@
     ;list
     (
       (string=? (list-ref args 0) "list")
-      ;get-flag-content
       (let
         (
-          [bookmarks (get-bookmarks (get-file-contents (open-input-file "~/.local/share/reservoir/stored.json")))]
+          [bookmarks (get-bookmarks (get-file-contents (open-input-file (json-file))))]
           [filter-flag (if (string? (get-flag-content "--filter" args))
             (get-flag-content "--filter" args)
             (get-flag-content "-f" args) ;returns #f if not found
@@ -512,29 +587,103 @@
       (let ([uuid (list-ref-or-alt args 1 #f)])
         (if uuid
           ;find bookmark by id
-          (let ([contents (get-file-contents (open-input-file "~/.local/share/reservoir/stored.json"))])
+          (let ([contents (get-file-contents (open-input-file (json-file)))])
             (let ([bookmark (get-bookmark-by-uuid uuid (get-bookmarks contents))])
-              (display "Title: ")
-              (display (bookmark-title bookmark))
-              (newline)
-              (display "Link: ")
-              (display (bookmark-link bookmark))
-              (newline)
-              (display "Note: ")
-              (if (string? (bookmark-note bookmark))
-                (display (bookmark-note bookmark))
-                (display "none")
+              (if (not bookmark)
+                (display "Uuid not found\n")
+                (begin
+                  (display "Title: ")
+                  (display (bookmark-title bookmark))
+                  (newline)
+                  (display "Link: ")
+                  (display (bookmark-link bookmark))
+                  (newline)
+                  (display "Note: ")
+                  (if (string? (bookmark-note bookmark))
+                    (display (bookmark-note bookmark))
+                    (display "none")
+                  )
+                  (newline)
+                  (display "Tags: ")
+                  (display (join-string-list (bookmark-tags bookmark) ", "))
+                  (newline)
+                  (display "Uuid: ")
+                  (display (bookmark-uuid bookmark))
+                  (newline)
+                  (display "Timestamp: ")
+                  (display (bookmark-timestamp bookmark))
+                  (newline)
+                )
               )
-              (newline)
-              (display "Tags: ")
-              (display (join-string-list (bookmark-tags bookmark) ", "))
-              (newline)
-              (display "Uuid: ")
-              (display (bookmark-uuid bookmark))
-              (newline)
-              (display "Timestamp: ")
-              (display (bookmark-timestamp bookmark))
-              (newline)
+            )
+          )
+          (display "Missing id argument\n")
+        )
+      )
+    )
+    ;new
+    ;rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] [--tags/-a \"x\",\"x\",\"x\"]
+    (
+      (string=? (list-ref args 0) "new")
+      (let
+        (
+          [bookmarks (get-bookmarks (get-file-contents (open-input-file (json-file))))]
+          [title-flag (if (string? (get-flag-content "--title" args))
+            (get-flag-content "--title" args)
+            (get-flag-content "-t" args) ;returns #f if not found
+          )]
+          [link-flag (if (string? (get-flag-content "--link" args))
+            (get-flag-content "--link" args)
+            (get-flag-content "-l" args)
+          )]
+          [note-flag (if (string? (get-flag-content "--note" args))
+            (get-flag-content "--note" args)
+            (get-flag-content "-n" args)
+          )]
+          [tags-flag (if (string? (get-flag-content "--tags" args))
+            (get-flag-content "--tags" args)
+            (get-flag-content "-a" args)
+          )]
+        )
+        ;flag validation: only title and link required
+        (cond
+          (
+            (not title-flag)
+            (display "'--title' flag required\n")
+          )
+          (
+            (not link-flag)
+            (display "'--link' flag required\n")
+          )
+          (
+            else
+            ;actually add
+            ;(make-bookmark title link note tags uuid timestamp)
+            (let ([new-bookmark (make-bookmark title-flag link-flag note-flag (if (not tags-flag) '() (parse-string-list tags-flag)) (gen-fake-uuid) (time-second (current-time)))])
+              (delete-file (json-file))
+              (call-with-output-file (json-file) (lambda (write-port)
+                (display (bookmarks-to-json (cons new-bookmark bookmarks)) write-port)
+                (display "Added new bookmark\n")
+              ))
+            )
+          )
+        )
+      )
+    )
+    ;delete
+    (
+      (string=? (list-ref args 0) "delete")
+      (let ([uuid (list-ref-or-alt args 1 #f)])
+        (if uuid
+          (let* ([contents (get-file-contents (open-input-file (json-file)))] [bookmarks (get-bookmarks contents)] [bookmark (get-bookmark-by-uuid uuid bookmarks)])
+            (if (not bookmark)
+              (display "Uuid not found\n")
+              (begin
+                (delete-file (json-file))
+                (call-with-output-file (json-file) (lambda (write-port)
+                  (display (bookmarks-to-json (remove bookmark bookmarks)) write-port)
+                ))
+              )
             )
           )
           (display "Missing id argument\n")

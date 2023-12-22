@@ -7,8 +7,8 @@ _rescli_completions() {
   if [ "${#COMP_WORDS[@]}" != "3" ]; then
     return
   fi
-  #must be view
-  if [ "${COMP_WORDS[1]}" != "view" ]; then
+  #must be view or delete
+  if [[ "${COMP_WORDS[1]}" != "view" && "${COMP_WORDS[1]}" != "delete" ]]; then
     return
   fi
   #autocomplete suggestion
