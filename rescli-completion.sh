@@ -1,7 +1,5 @@
 #/usr/bin/env bash
 
-#needs to be source'd
-
 _rescli_completions() {
   #length must be three
   if [ "${#COMP_WORDS[@]}" != "3" ]; then
@@ -12,9 +10,8 @@ _rescli_completions() {
     return
   fi
   #autocomplete suggestion
-  COMPREPLY=($(compgen -W "$(scheme --script get_uuids.scm)" "${COMP_WORDS[2]}"))
+  COMPREPLY=($(compgen -W "$(scheme --script /etc/bash_completion.d/rescli_utils/get_uuids.scm)" "${COMP_WORDS[2]}"))
 }
 
-complete -F _rescli_completions ./rescli
-#complete -W "now never" ./rescli
+complete -F _rescli_completions rescli
 

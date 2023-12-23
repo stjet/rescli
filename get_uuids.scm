@@ -1,3 +1,4 @@
+#!/usr/bin/petite --script
 ;for autocomplete extract all uuids
 ;our reservoir json is nicely formatted,
 ;but let's make this parse even weirdly formatted json
