@@ -1,8 +1,8 @@
 ;read the reservoir file, search, view, edit
 ;rescli list [--filter/-f all/title/link/tags] [--sort/-s relevant/newest/oldest] [--query/-q xxx] [--limit/-l n]
 ;rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] (--tags/-a \"x\",\"x\",\"x\")
-;rescli delete [id]
-;rescli view [id]
+;rescli delete (id)
+;rescli view (id)
 ;rescli init [--overwrite/-o]
 ;~/.local/share/reservoir/stored.json
 
@@ -150,7 +150,7 @@
 ))
 ;extract host: https://a.example.com/asdf -> a.example.com
 ;protocol is true/false whether the http:// or https:// is included
-(define extract-host (lambda (uri protocol)
+(define extract-host (lambda (uri)
   ;slashes is number of slashes encountered
   (define extract-host-tail (lambda (uri protocol index slashes host)
     (if (= (string-length uri) index)
@@ -172,7 +172,7 @@
       )
     )
   ))
-  (extract-host-tail uri protocol 0 0 "")
+  (extract-host-tail uri (string-in-string "://" uri) 0 0 "")
 ))
 ;parse json stuff
 (define parse-string (lambda (to-string)
@@ -246,8 +246,6 @@
     "null"
   )
 ))
-;(define parse-string-list (lambda (to-string-list)
-;
 ;bookmark related
 (define-record-type bookmark (fields title link note tags uuid timestamp))
 ;do not assume formatting or order of fields
@@ -387,7 +385,7 @@
     (if (= (length bookmarks) 0)
       list-string
       (let ([current-bookmark (car bookmarks)])
-        (gen-bookmark-list-tail (cdr bookmarks) (string-append list-string (bookmark-uuid current-bookmark) ": " (bookmark-title current-bookmark) " (" (extract-host (bookmark-link current-bookmark) #f) ")\n"))
+        (gen-bookmark-list-tail (cdr bookmarks) (string-append list-string (bookmark-uuid current-bookmark) ": " (bookmark-title current-bookmark) " (" (extract-host (bookmark-link current-bookmark)) ")\n"))
       )
     )
   ))
@@ -511,7 +509,7 @@
     ;help command
     (
       (or (string=? (list-ref args 0) "--help") (string=? (list-ref args 0) "-h"))
-      (display "Commands:\n - rescli list [--filter/-f all/title/link/tags] [--sort/-s relevant/newest/oldest] [--query/-q xxx] [--limit/-l n] \n - rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] [--tags/-a \"x\",\"x\",\"x\"] \n - rescli view [id]\n - rescli init [--overwrite/-o]\n")
+      (display "Commands:\n - rescli list [--filter/-f all/title/link/tags] [--sort/-s relevant/newest/oldest] [--query/-q xxx] [--limit/-l n] \n - rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] [--tags/-a \"x\",\"x\",\"x\"] \n - rescli delete (id) \n - rescli view (id) \n - rescli init [--overwrite/-o]\n")
     )
     ;init
     (
