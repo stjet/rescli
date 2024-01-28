@@ -3,6 +3,7 @@
 ;rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] (--tags/-a \"x\",\"x\",\"x\")
 ;rescli delete (id)
 ;rescli view (id)
+;rescli tags
 ;rescli init [--overwrite/-o]
 ;~/.local/share/reservoir/stored.json
 
@@ -72,6 +73,38 @@
     )
   ))
   (reverse (list-take-tail og-list first-n '()))
+))
+;merge list-1 into list-2
+(define merge-list (lambda (list-1 list-2)
+  (if (= (length list-2) 0)
+    list-1
+    (merge-list (cons (car list-2) list-1) (cdr list-2))
+  )
+))
+;flatten list of lists into single list
+(define flatten-list (lambda (list-of-lists)
+  (define flatten-list-tail (lambda (list-of-lists flattened-list)
+    (if (= (length list-of-lists) 0)
+      flattened-list
+      (flatten-list-tail (cdr list-of-lists) (merge-list (car list-of-lists) flattened-list))
+    )
+  ))
+  (flatten-list-tail list-of-lists '())
+))
+(define remove-duplicates (lambda (dup-list)
+  ;placeholder
+  (define remove-duplicates-tail (lambda (original-list unique-list)
+    (if (= (length original-list) 0)
+      unique-list
+      (if (member (car original-list) unique-list)
+        ;already present, so do not add
+        (remove-duplicates-tail (cdr original-list) unique-list)
+        ;is not present, so add
+        (remove-duplicates-tail (cdr original-list) (cons (car original-list) unique-list))
+      )
+    )
+  ))
+  (remove-duplicates-tail dup-list '())
 ))
 ;util to remove non quoted spaces
 (define strip-non-quoted (lambda (content)
@@ -509,7 +542,7 @@
     ;help command
     (
       (or (string=? (list-ref args 0) "--help") (string=? (list-ref args 0) "-h"))
-      (display "Commands:\n - rescli list [--filter/-f all/title/link/tags] [--sort/-s relevant/newest/oldest] [--query/-q xxx] [--limit/-l n] \n - rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] [--tags/-a \"x\",\"x\",\"x\"] \n - rescli delete (id) \n - rescli view (id) \n - rescli init [--overwrite/-o]\n")
+      (display "Commands:\n - rescli list [--filter/-f all/title/link/tags] [--sort/-s relevant/newest/oldest] [--query/-q xxx] [--limit/-l n] \n - rescli new (--title/-t xxx) (--link/-l xxx) [--note/-n xxx] [--tags/-a \"x\",\"x\",\"x\"] \n - rescli delete (id) \n - rescli view (id) \n - rescli tags \n - rescli init [--overwrite/-o]\n")
     )
     ;init
     (
@@ -688,10 +721,22 @@
         )
       )
     )
+    ;tags
+    (
+      (string=? (list-ref args 0) "tags")
+      (let ([contents (get-file-contents (open-input-file (json-file)))])
+        (let ([bookmarks (get-bookmarks contents)])
+          (display (join-string-list (remove-duplicates (flatten-list (map (lambda (bookmark)
+            (bookmark-tags bookmark)
+          ) bookmarks))) ", "))
+          (newline)
+        )
+      )
+    )
     ;else invalid
     (
       else
-      (display "invalid\n")
+      (display "invalid, run 'rescli --help'\n")
     )
   )
 )
